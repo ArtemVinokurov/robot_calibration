@@ -10,7 +10,9 @@
 #include <iostream>
 #include <cmath>
 #include <memory>
+#include <chrono>
 
+using namespace std::chrono_literals;
 
 std::string GetTrackedDeviceString( vr::IVRSystem *pHmd, vr::TrackedDeviceIndex_t unDevice, vr::TrackedDeviceProperty prop, vr::TrackedPropertyError *peError = NULL )
 {
@@ -30,21 +32,22 @@ void mySigintHandler(int sig)
     rclcpp::shutdown();
 }
 
+
 void handleDebugMessages(const std::string &msg)
 {
-    //RCLCPP_DEBUG(logger_, "%s", msg.c_str());
+    //RCLCPP_DEBUG(this->get_logger(), "%s", msg.c_str());
     std::cout << msg.c_str() << std::endl;
 }
 
 void handleInfoMessages(const std::string &msg)
 {
-    //RCLCPP_DEBUG(logger_, "%s", msg.c_str());
+    //RCLCPP_DEBUG(this->get_logger(), "%s", msg.c_str());
     std::cout << msg.c_str() << std::endl;
 }
 
 void handleErrorMessages(const std::string &msg)
 {
-    //RCLCPP_DEBUG(logger_, "%s", msg.c_str());
+    //RCLCPP_DEBUG(this->get_logger(), "%s", msg.c_str());
     std::cout << msg.c_str() << std::endl;
 }
 
@@ -66,15 +69,17 @@ class VIVEnode : public rclcpp::Node
         VRInterface vr_;
 
     private:
-        rclcpp::Rate loop_rate_;
+        double tf_matrix[3][4];
+        int rate_;
+        int run_hz_count;
         std::vector<double> world_offset_;
         double world_yaw_;
         std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
         std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
         std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
         rclcpp::Service<std_srvs::srv::Empty>::SharedPtr set_origin_srv_;
-        rclcpp::Logger logger_;
-
+        rclcpp::CallbackGroup::SharedPtr callback_group;
+        rclcpp::TimerBase::SharedPtr timer_ptr_;
         
         // rclcpp::Publisher<geometry_msgs::msg::TwistStamped> twist0_pub;
         // rclcpp::Publisher<geometry_msgs::msg::TwistStamped> twist1_pub;
@@ -84,25 +89,24 @@ class VIVEnode : public rclcpp::Node
 
 VIVEnode::VIVEnode(int rate) :
     Node("vive_node"),
-    loop_rate_(rate),
-    // tf_broadcaster_(),
-    tf_listener_(),
-    vr_(),
-    world_offset_({0, 0, 0}),
-    world_yaw_(0),
-    logger_(this->get_logger())
+    rate_(rate)
 {
+    std::cout << "init" << std::endl;
+    this->declare_parameter("world_offset", rclcpp::PARAMETER_DOUBLE_ARRAY);
+    this->declare_parameter("world_yaw", rclcpp::PARAMETER_DOUBLE);
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
-
+    RCLCPP_INFO(this->get_logger(), "!!!!");
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-    world_offset_ = this->get_parameter("/vive/world_offset").as_double_array();
-    world_yaw_ = this->get_parameter("/vive/world_yaw").as_double();
-    RCLCPP_INFO(logger_, "WORLD OFFSET: [%2.3f, %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
-    set_origin_srv_ = create_service<std_srvs::srv::Empty>("/vive/set_origin", std::bind(&VIVEnode::setOriginCB, this, std::placeholders::_1, std::placeholders::_2));
-    return;
+    world_offset_ = this->get_parameter("world_offset").as_double_array();
+    world_yaw_ = this->get_parameter("world_yaw").as_double();
+    RCLCPP_INFO(this->get_logger(), "WORLD OFFSET: [%2.3f, %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
+    callback_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    set_origin_srv_ = create_service<std_srvs::srv::Empty>("/vive/set_origin", std::bind(&VIVEnode::setOriginCB, this, std::placeholders::_1, std::placeholders::_2),rmw_qos_profile_services_default, callback_group);
+    run_hz_count = 0;
+    
+    timer_ptr_ = this->create_wall_timer(33ms, std::bind(&VIVEnode::run, this), nullptr);
 }
-
 VIVEnode::~VIVEnode()
 {
     return;
@@ -110,25 +114,25 @@ VIVEnode::~VIVEnode()
 
 // void VIVEnode::handleDebugMessages(const std::string &msg)
 // {
-//     RCLCPP_DEBUG(logger_, "%s", msg.c_str());
+//     RCLCPP_DEBUG(this->get_logger(), "%s", msg.c_str());
 // }
 
 // void VIVEnode::handleInfoMessages(const std::string &msg)
 // {
-//     RCLCPP_DEBUG(logger_, "%s", msg.c_str());
+//     RCLCPP_DEBUG(this->get_logger(), "%s", msg.c_str());
 // }
 
 // void VIVEnode::handleErrorMessages(const std::string &msg)
 // {
-//     RCLCPP_DEBUG(logger_, "%s", msg.c_str());
+//     RCLCPP_DEBUG(this->get_logger(), "%s", msg.c_str());
 // }
 
 
 bool VIVEnode::init()
 {
-    vr_.setDebugMsgCallback(handleDebugMessages);
-    vr_.setInfoMsgCallback(handleInfoMessages);
-    vr_.setErrorMsgCallback(handleErrorMessages);
+    // vr_.setDebugMsgCallback(handleDebugMessages);
+    // vr_.setInfoMsgCallback(handleInfoMessages);
+    // vr_.setErrorMsgCallback(handleErrorMessages);
 
     if (!vr_.init())
     {
@@ -146,22 +150,25 @@ void VIVEnode::shutdown()
 
 void VIVEnode::setOriginCB(const std::shared_ptr<std_srvs::srv::Empty::Request> req, std::shared_ptr<std_srvs::srv::Empty::Response> res)
 {
-    double tf_matrix[3][4];
-    int index = 1, dev_type;
-    while (dev_type != 2)
-    {
-        dev_type = vr_.getDeviceMatrix(index++, tf_matrix);
-    }
+    std::cout << "srv" << std::endl;
+    double tf[3][4];
+    // int index = 1, dev_type;
+    // while (dev_type != 2)
+    // {
+    //     dev_type = vr_.getDeviceMatrix(index++, tf_matrix);
+    //     std::cout << dev_type << std::endl;
+    // }
 
-    if (dev_type == 0)
-    {
-        RCLCPP_WARN(logger_, "Couldn't find controller 1");
-        return;
-    }
+    // if (dev_type == 0)
+    // {
+    //     RCLCPP_WARN(this->get_logger(), "Couldn't find controller 1");
+    //     return;
+    // }
+    vr_.getDeviceMatrix(3, tf);
 
-    tf2::Matrix3x3 rot_matrix(tf_matrix[0][0], tf_matrix[0][1], tf_matrix[0][2],
-                            tf_matrix[1][0], tf_matrix[1][1], tf_matrix[1][2],
-                            tf_matrix[2][0], tf_matrix[2][1], tf_matrix[2][2]);
+    tf2::Matrix3x3 rot_matrix(tf[0][0], tf[0][1], tf[0][2],
+                            tf[1][0], tf[1][1], tf[1][2],
+                            tf[2][0], tf[2][1], tf[2][2]);
 
     tf2::Vector3 c_z = rot_matrix*tf2::Vector3(0,0,1);
     c_z[1] = 0;
@@ -174,21 +181,21 @@ void VIVEnode::setOriginCB(const std::shared_ptr<std_srvs::srv::Empty::Request> 
     tf2::Vector3 new_offset;
     tf2::Matrix3x3 new_rot;
     new_rot.setRPY(0, 0, world_yaw_);
-    new_offset = new_rot*tf2::Vector3(-tf_matrix[0][3], tf_matrix[2][3], -tf_matrix[1][3]);
+    new_offset = new_rot*tf2::Vector3(-tf[0][3], tf[2][3], -tf[1][3]);
 
     world_offset_[0] = new_offset[0];
     world_offset_[1] = new_offset[1];
     world_offset_[2] = new_offset[2];
-    std::vector<rclcpp::Parameter> new_parameters{rclcpp::Parameter("/vive/world_offset", world_offset_), rclcpp::Parameter("/vive/world_yaw", world_yaw_)};
+    std::vector<rclcpp::Parameter> new_parameters{rclcpp::Parameter("world_offset", world_offset_), rclcpp::Parameter("world_yaw", world_yaw_)};
     this->set_parameters(new_parameters);
-    RCLCPP_INFO(logger_, "NEW WORLD OFFSET: [%2.3f, %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
+    RCLCPP_INFO(this->get_logger(), "NEW WORLD OFFSET: [%2.3f, %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
     return;
 }
 
 void VIVEnode::run()
 {
-    double tf_matrix[3][4];
-    int run_hz_count = 0;
+    // double tf_matrix[3][4];
+    // int run_hz_count = 0;
 
     // while (rclcpp::ok())
     // {
@@ -266,27 +273,39 @@ void VIVEnode::run()
         tf_broadcaster_->sendTransform(t_world);
 
         auto& clk = *this->get_clock();
-        RCLCPP_INFO_THROTTLE(logger_, clk, 1000, "Run() @ %d [fps]", [](int& cin){int ans = cin; cin = 0; return ans;}(run_hz_count));
+        RCLCPP_INFO_THROTTLE(this->get_logger(), clk, 1000, "Run() @ %d [fps]", [](int& cin){int ans = cin; cin = 0; return ans;}(run_hz_count));
         run_hz_count++;
-        loop_rate_.sleep();
+        // rclcpp::Rate loop_rate(rate_);
+        // loop_rate.sleep();
+
     }
-//}
+// }
 
 
 
-int main(int argc, char ** argv)
+int main(int argc, char * argv[])
 {   
+
+    std::cout << "start" << std::endl;
     signal(SIGINT, mySigintHandler);
     rclcpp::init(argc, argv);
-   auto node = std::make_shared<VIVEnode>(30);
+    std::cout << "start0" << std::endl;
+    auto node = std::make_shared<VIVEnode>(30);
+    if (!node->init()) {
+        node->shutdown();
+        return 1;
+    }
+    // std::cout << "start1" << std::endl;
     // rclcpp::spin(std::make_shared<VIVEnode>(30));
     rclcpp::executors::SingleThreadedExecutor executor;
     executor.add_node(node);
+    // node->run();
+    // int rate = 30;
+    rclcpp::Rate loop_rate(30);
 
     while (rclcpp::ok())
     {
-        node->run();
-        executor.spin_once();
+        executor.spin();
     }
 
     rclcpp::shutdown();

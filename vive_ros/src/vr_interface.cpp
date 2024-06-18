@@ -35,6 +35,7 @@ VRInterface::VRInterface()
   , info_(defaultInfoMsgCallback)
   , max_devices_(vr::k_unMaxTrackedDeviceCount) // or vr::k_unMaxTrackedDeviceCount
 {
+  std::cout << "vr interface  init" << std::endl;
   play_area_[0] = -1;
   play_area_[1] = -1;
   for (int i=0; i<4; i++) 

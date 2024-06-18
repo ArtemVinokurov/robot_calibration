@@ -1,0 +1,4 @@
+vive_node:
+  ros__parameters:
+    world_offset: [0.0, 0.0, 0.0]
+    world_yaw: 0.0
