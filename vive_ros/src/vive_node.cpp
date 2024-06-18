@@ -164,7 +164,15 @@ void VIVEnode::setOriginCB(const std::shared_ptr<std_srvs::srv::Empty::Request> 
     //     RCLCPP_WARN(this->get_logger(), "Couldn't find controller 1");
     //     return;
     // }
-    vr_.getDeviceMatrix(3, tf);
+    for (int i = 0; i < vr::k_unMaxTrackedDeviceCount; i++)
+    {
+        if (vr_.pHMD_->GetTrackedDeviceClass(i) == 3)
+        {
+            vr_.getDeviceMatrix(i, tf);
+            break;
+        }
+    }
+    
 
     tf2::Matrix3x3 rot_matrix(tf[0][0], tf[0][1], tf[0][2],
                             tf[1][0], tf[1][1], tf[1][2],
@@ -182,13 +190,15 @@ void VIVEnode::setOriginCB(const std::shared_ptr<std_srvs::srv::Empty::Request> 
     tf2::Matrix3x3 new_rot;
     new_rot.setRPY(0, 0, world_yaw_);
     new_offset = new_rot*tf2::Vector3(-tf[0][3], tf[2][3], -tf[1][3]);
+    //new_offset = tf2::Vector3(-tf[0][3], tf[2][3], -tf[1][3]);
+    RCLCPP_INFO(this->get_logger(), "offset: [%2.6f, %2.6f, %2.6f]", tf[0][3], tf[2][3], -tf[1][3]);
 
     world_offset_[0] = new_offset[0];
     world_offset_[1] = new_offset[1];
     world_offset_[2] = new_offset[2];
     std::vector<rclcpp::Parameter> new_parameters{rclcpp::Parameter("world_offset", world_offset_), rclcpp::Parameter("world_yaw", world_yaw_)};
     this->set_parameters(new_parameters);
-    RCLCPP_INFO(this->get_logger(), "NEW WORLD OFFSET: [%2.3f, %2.3f, %2.3f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
+    RCLCPP_INFO(this->get_logger(), "NEW WORLD OFFSET: [%2.6f, %2.6f, %2.6f] %2.3f", world_offset_[0], world_offset_[1], world_offset_[2], world_yaw_);
     return;
 }
 
