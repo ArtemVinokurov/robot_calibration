@@ -1,0 +1,25 @@
+{
+    "trajectories": [
+      {
+        "name": "trajectory1",
+        "type": "work",
+        "transform": [
+          {"x": 0, "y": 0, "z": 0, "q_x": 0, "q_y": 0, "q_z": 0, "q_w": 0},
+          {"x": 1, "y": 1, "z": 1, "q_x": 0, "q_y": 0, "q_z": 0, "q_w": 0},
+          {"x": 2, "y": 2, "z": 2, "q_x": 0, "q_y": 0, "q_z": 0, "q_w": 0}
+        ]
+      },
+      {
+        "name": "trajectory2",
+        "type": "dummy",
+        "transform": [
+          {"x": 3, "y": 3, "z": 3, "q_x": 0, "q_y": 0, "q_z": 0, "q_w": 0},
+          {"x": 4, "y": 4, "z": 4, "q_x": 0, "q_y": 0, "q_z": 0, "q_w": 0},
+          {"x": 5, "y": 5, "z": 5, "q_x": 0, "q_y": 0, "q_z": 0, "q_w": 0}
+        ]
+      }
+    ],
+    "buttonStatus1": {"status": "on"},
+    "buttonStatus2": {"status": "off"},
+    "buttonStatus3": {"status": "on"}
+  }
