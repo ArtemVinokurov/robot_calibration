@@ -87,11 +87,9 @@ VIVEnode::VIVEnode(int rate) :
     Node("vive_node"),
     rate_(rate)
 {
-    std::cout << "init" << std::endl;
     this->declare_parameter("world_offset", rclcpp::PARAMETER_DOUBLE_ARRAY);
     this->declare_parameter("world_yaw", rclcpp::PARAMETER_DOUBLE);
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
-    RCLCPP_INFO(this->get_logger(), "!!!!");
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     world_offset_ = this->get_parameter("world_offset").as_double_array();
@@ -131,7 +129,6 @@ void VIVEnode::shutdown()
 
 void VIVEnode::setOriginCB(const std::shared_ptr<std_srvs::srv::Empty::Request> req, std::shared_ptr<std_srvs::srv::Empty::Response> res)
 {
-    std::cout << "srv" << std::endl;
     double tf[3][4];
     for (int i = 0; i < vr::k_unMaxTrackedDeviceCount; i++)
     {
