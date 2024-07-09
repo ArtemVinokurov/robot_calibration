@@ -27,7 +27,8 @@ setup(
         'console_scripts': [
             'move_robot_node = manipulator_control.move_robot_node:main',
             'data_publisher = manipulator_control.data_publisher:main',
-            'test_movej = manipulator_control.test_movej:main'
+            'test_movej = manipulator_control.test_movej:main',
+            'connect_data_node = manipulator_control.collect_data_node:main'
         ],
     },
 )
