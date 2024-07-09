@@ -28,18 +28,20 @@ class MoveClinet(Node):
     
     def get_trajectory(self):
         with open(self.path_to_data, 'r') as f:
-            reader = csv.reader(f, quoting=csv.QUOTE_NONNUMERIC)
-            print(reader)
-            for row in reader[1:]:
-                self.goal_trajectory.append(row[:6])
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                lst = map(float, row)
+                self.goal_trajectory.append(list(lst)[:6])
     
     def execute_trajecoty(self):
         self.get_trajectory()
         for traj in self.goal_trajectory:
             req = MoveJ.Request()
             req.angles = traj
-            self.cli.call(req)
-            rclpy.spin_once()
+            future = self.cli.call_async(req)
+            rclpy.spin_until_future_complete(self, future)
+            # rclpy.spin_once(self)
             time.sleep(0.5)
 
 

@@ -74,7 +74,7 @@ class MoveRobotService(Node):
         
         # while self.robot.getState() is InterpreterStates.PROGRAM_RUN_S.value:
         #     pass
-        result = self.robot.moveToPoint(list(angles), 0.5, 0.5)
+        result = self.robot.moveToPoint(list(angles), 0.1, 0.5)
         response.success = result
         return response
     
