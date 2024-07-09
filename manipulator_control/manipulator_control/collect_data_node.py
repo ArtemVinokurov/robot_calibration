@@ -20,11 +20,13 @@ from .robot_control.system_defs import InterpreterStates
 from ament_index_python.packages import get_package_share_directory
 import os
 import csv
+import json
 
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from geometry_msgs.msg import TransformStamped, Transform
+from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
 import numpy as np
 from numpy.linalg import inv
@@ -70,7 +72,29 @@ class DataCollectionNode(Node):
         self.path_to_traj = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'data.csv')
         self.goal_trajectory = []
 
-        self.path_to_csv = os.path.expandvars('$HOME') + '/experiments/data.json'
+        self.path_to_data = os.path.expandvars('$HOME') + '/calibration_data/experiments'
+        self.path_to_config = os.path.expandvars('$HOME') + '/calibration/config/ar_20.json'
+
+
+        self.tf_static_broadcaster = StaticTransformBroadcaster(self)
+
+    def make_transform(self, translation, quat):
+        t = TransformStamped()
+
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = 'world_vive'
+        t.child_frame_id = 'base_frame'
+
+        t.transform.translation.x = float(translation[0])
+        t.transform.translation.y = float(translation[1])
+        t.transform.translation.z = float(translation[2])
+
+        t.transform.rotation.x = quat[0]
+        t.transform.rotation.y = quat[1]
+        t.transform.rotation.z = quat[2]
+        t.transform.rotation.w = quat[3]
+
+        self.tf_static_broadcaster.sendTransform(t)
 
     def get_trajectory(self):
 
@@ -108,11 +132,8 @@ class DataCollectionNode(Node):
         
     def get_tracker_pose_array(self):
         rotation_mat = R.from_matrix(self.tracker_pose[:3, :3])
-
-        translation_vec = self.tracker_pose[:,3]
-
+        translation_vec = self.tracker_pose[0:3, [3]]
         result = np.concatenate([translation_vec, rotation_mat.as_euler('zyx', degrees=False)])
-
         return result.tolist()
 
 
@@ -130,17 +151,30 @@ class DataCollectionNode(Node):
 
         tool_rotation = R.from_euler('zyx', np.array(tool_params[3:]))
         tool_trans = tool_params[:3]
-
         Rt = np.append(tool_rotation.as_matrix(), [[tool_trans[0]], [tool_trans[1]], [tool_trans[2]]], axis=1)
         tool_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
         tracker_tf = self.tracker_pose
         base_frame_tf = tracker_tf @ inv(tool_tf)
+        
 
         ### write base frame tf to json
-        # 
-        # 
-        # 
-        #  
+
+        base_frame_rot = R.from_matrix(base_frame_tf[:3, :3])
+        base_frame_trans = base_frame_tf[0:3, [3]]
+        base_pose = np.concatenate([base_frame_trans, base_frame_rot.as_euler('zyx')])
+
+        ### publish static transform from nominal base frame to vive frame
+        self.make_transform(base_frame_trans, base_frame_rot.as_quat())
+
+
+        ### write calibrate base frame to config json file
+        with open(self.path_to_config, "r", encoding='utf-8') as f:
+            data = json.load(f)
+        data['nominal_base_params'] = base_pose.tolist()
+
+        with open(self.path_to_config, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+
 
         self.get_logger().info("Calibration of the base frame has been done")
     
@@ -158,13 +192,13 @@ class DataCollectionNode(Node):
             rclpy.spin_until_future_complete(self, future)
             time.sleep(5.0)
 
-            folder = Path(self.path_to_csv)
+            folder = Path(self.path_to_data)
             file_count = len(list(folder.iterdir()))
 
             header = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6',
               'px', 'py', 'pz', 'Rz', 'Ry', 'Rx']
             
-            with open(self.path_to_csv + "\experiment" + str(file_count), "w", encoding='UTF8') as f:
+            with open(self.path_to_data + "\experiment" + str(file_count) + ".csv", "w", encoding='UTF8') as f:
                 writer = csv.writer(f)
                 writer.writerow(header)
                 actual_joint_position = self.joint_subscription.read()[0].value
