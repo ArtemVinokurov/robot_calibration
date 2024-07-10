@@ -14,9 +14,6 @@ import rclpy.time
 import motorcortex
 import math
 import time
-from .robot_control.motion_program import Waypoint, MotionProgram, PoseTransformer
-from .robot_control.robot_command import RobotCommand
-from .robot_control.system_defs import InterpreterStates
 from ament_index_python.packages import get_package_share_directory
 import os
 import csv
@@ -34,7 +31,7 @@ from scipy.spatial.transform import Rotation as R
 
 
 from pathlib import Path
-
+from std_srvs.srv import Empty
 
 class DataCollectionNode(Node):
     def __init__(self):
@@ -77,6 +74,9 @@ class DataCollectionNode(Node):
 
 
         self.tf_static_broadcaster = StaticTransformBroadcaster(self)
+
+        self.base_calibration_srv = self.create_service(Empty, "/base_frame_calibration", self.base_calibration_cb, callback_group=callback_group)
+        self.start_experiments_srv = self.create_service(Empty, "/start_experiment", self.start_experiment_cb, callback_group=callback_group)
 
     def make_transform(self, translation, quat):
         t = TransformStamped()
@@ -177,6 +177,7 @@ class DataCollectionNode(Node):
 
 
         self.get_logger().info("Calibration of the base frame has been done")
+
     
 
 
@@ -210,6 +211,17 @@ class DataCollectionNode(Node):
                 
 
             time.sleep(0.5)
+    
+    
+    def base_calibration_cb(self, request, response):
+        self.base_calibration()
+        return
+
+    def start_experiment_cb(self, request, response):
+        self.execute_experiment()
+        return
+
+
 
 def main():
     rclpy.init()
