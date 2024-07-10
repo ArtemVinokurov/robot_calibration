@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -61,17 +63,17 @@ def generate_launch_description():
     return LaunchDescription(
         [
             vive_node,
-            RegisterEventHandler(
-                event_handler=OnProcessStart(
-                    target_action=vive_node,
-                    on_exit=[manipulator_control, collect_data_node]
-                )
-            ),
-            RegisterEventHandler(
-                event_handler=OnProcessStart(
-                    target_action=collect_data_node,
-                    on_exit=[experiment_interface]
-                )
-            )
+            # RegisterEventHandler(
+            #     event_handler=OnProcessStart(
+            #         target_action=vive_node,
+            #         on_exit=[manipulator_control, collect_data_node]
+            #     )
+            # ),
+            # RegisterEventHandler(
+            #     event_handler=OnProcessStart(
+            #         target_action=collect_data_node,
+            #         on_exit=[experiment_interface]
+            #     )
+            # )
         ]
     )

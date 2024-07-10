@@ -5,7 +5,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_srvs.srv import Empty
-from sys import stdin
+import sys
 
 class ClientNode(Node):
     def __init__(self):
@@ -20,11 +20,11 @@ class ClientNode(Node):
     
     def start_experiments_req(self):
         req = Empty.Request()
-        return self.start_experiment_cli.call_async()
+        return self.start_experiment_cli.call_async(req)
     
     def base_calibration_req(self):
         req = Empty.Request()
-        return self.base_calibration_cli.call_async()
+        return self.base_calibration_cli.call_async(req)
 
 
 def main():
@@ -34,8 +34,8 @@ def main():
 
     
     while rclpy.ok():
-        print("1. Calibration base frame \n 2. Start Experiment")
-        command = stdin.readline()
+        print("1. Calibration base frame \n2. Start Experiment")
+        command = int(input())
         if command == 1:
             future = node.base_calibration_req()
             rclpy.spin_until_future_complete(node, future)

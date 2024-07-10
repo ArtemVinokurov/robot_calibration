@@ -147,7 +147,8 @@ void VIVEnode::setOriginCB(const std::shared_ptr<std_srvs::srv::Empty::Request> 
     tf2::Vector3 c_z = rot_matrix*tf2::Vector3(0,0,1);
     c_z[1] = 0;
     c_z.normalize();
-    double new_yaw = acos(tf2::Vector3(0,0,1).dot(c_z)) + M_PI_2;
+    // double new_yaw = acos(tf2::Vector3(0,0,1).dot(c_z)) + M_PI_2;
+    double new_yaw = acos(tf2::Vector3(0,0,1).dot(c_z));
 
     if(c_z[0] < 0) new_yaw *= -1;
     world_yaw_ = -new_yaw;
@@ -223,6 +224,7 @@ void VIVEnode::run()
        
 
         tf2::Quaternion quat_world;
+        // quat_world.setRPY(M_PI_2, 0, world_yaw_);
         quat_world.setRPY(M_PI_2, 0, world_yaw_);
 
         geometry_msgs::msg::TransformStamped t_world;
