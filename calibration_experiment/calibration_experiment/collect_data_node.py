@@ -225,30 +225,36 @@ class DataCollectionNode(Node):
 
     def execute_experiment(self):
         self.get_logger().info("Starting experiment...")
-        
-        goal_trajectory = self.get_trajectory()
 
-        for traj in goal_trajectory:
-            req = MoveJ.Request()
-            req.angles = traj
-            future = self.movej_cli.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
-            self.loop_rate.sleep()
+        folder = Path(self.path_to_data)
+        file_count = len(list(folder.iterdir()))
+        header = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6',
+            'px', 'py', 'pz', 'Rz', 'Ry', 'Rx']
 
-            folder = Path(self.path_to_data)
-            file_count = len(list(folder.iterdir()))
+        with open(self.path_to_data + "\experiment" + str(file_count+1) + ".csv", "w", encoding='UTF8') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)        
 
-            header = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6',
-              'px', 'py', 'pz', 'Rz', 'Ry', 'Rx']
-            
-            with open(self.path_to_data + "\experiment" + str(file_count) + ".csv", "w", encoding='UTF8') as f:
-                writer = csv.writer(f)
-                writer.writerow(header)
+            goal_trajectory = self.get_trajectory()
+
+            for traj in goal_trajectory:
+                req = MoveJ.Request()
+                req.angles = traj
+                future = self.movej_cli.call_async(req)
+                rclpy.spin_until_future_complete(self, future)
+                self.loop_rate.sleep()
+
                 actual_joint_position = self.joint_subscription.read()[0].value
-                tracker_pose = self.get_tracker_pose()
+                future = self.get_tracker_pose_cli.call_async(TrackerPose.Request())
+                rclpy.spin_until_future_complete(self, future)
+                tracker_pose = future.result()
 
-                tracker_trans = tracker_pose[0:3, [3]].flatten()
-                tracker_rot = R.from_matrix(tracker_pose[:3, :3])
+                if not tracker_pose.success:
+                    continue
+
+                tracker_tf = self.pose_to_homogeneous(tracker_pose)
+                tracker_trans = tracker_tf[0:3, [3]].flatten()
+                tracker_rot = R.from_matrix(tracker_tf[:3, :3])
                 tracker_position = np.concatenate([tracker_trans, tracker_rot.as_euler('zyx')])
 
                 data = actual_joint_position + tracker_position.tolist()
