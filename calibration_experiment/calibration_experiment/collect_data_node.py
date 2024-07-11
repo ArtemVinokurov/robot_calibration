@@ -7,7 +7,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from math import pi, asin, cos, sin, acos, atan2, sqrt, radians
 from geometry_msgs.msg import Pose, PoseArray
 from scipy.spatial.transform import Rotation as R
-from robot_interfaces.srv import MoveJ
+from robot_interfaces.srv import MoveJ, TrackerPose
 from std_msgs.msg import Float32
 import rclpy.time
 
@@ -29,9 +29,37 @@ import numpy as np
 from numpy.linalg import inv
 from scipy.spatial.transform import Rotation as R
 
-
 from pathlib import Path
 from std_srvs.srv import Empty
+
+
+
+class GetTrackerPoseSrv(Node):
+    def __init__(self):
+        super().__init__("get_pose_srv")
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
+        self.target_frame = 'tracker_LHR_A5314E9D'
+
+
+        cb_group = ReentrantCallbackGroup()
+        self.create_service(TrackerPose, "/get_tracker_pose", self.get_pose_cb,callback_group=cb_group)
+
+    def get_pose_cb(self, request: TrackerPose.Request, response: TrackerPose.Response):
+        from_frame = 'world'
+
+        try:
+            t = self.tf_buffer.lookup_transform(self.target_frame, from_frame, rclpy.time.Time())
+        except TransformException as ex:
+            self.get_logger().info(f'Could not transform {self.target_frame} to {from_frame}: {ex}')
+            response.success = False
+            return
+        
+        response.success = True
+        response.tf = t.transform
+        return response
+
+
 
 class DataCollectionNode(Node):
     def __init__(self):
@@ -43,7 +71,7 @@ class DataCollectionNode(Node):
 
         try:
             self.req, self.sub = motorcortex.connect('wss://192.168.2.100:5568:5567', self.motorcortex_types, parameter_tree,
-                                                     certificate=license_file, timeout_ms=1000, login="admin", password="vectioneer")
+                                                     certificate=license_file, timeout_ms=10000, login="admin", password="vectioneer")
         
         # self.subscription = self.sub
             self.joint_subscription = self.sub.subscribe(
@@ -55,17 +83,13 @@ class DataCollectionNode(Node):
             self.get_logger().error(f"Failed to establish connection: {e}")
             return
         
-        callback_group = ReentrantCallbackGroup()
+        cb_group = ReentrantCallbackGroup()
 
-        self.movej_cli = self.create_client(MoveJ, 'moveJ', callback_group=callback_group)
-        self.set_origin_cli = self.create_client(Empty, '/vive/set_origin', callback_group=callback_group)
+        self.movej_cli = self.create_client(MoveJ, 'moveJ', callback_group=cb_group)
+        self.set_origin_cli = self.create_client(Empty, '/vive/set_origin', callback_group=cb_group)
+        self.get_tracker_pose_cli = self.create_client(TrackerPose, '/get_tracker_pose', callback_group=cb_group)
 
-        self.tracker_pose = []
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
-
-        self.target_frame = 'tracker_LHR_A5314E9D'
-        #self.timer = self.create_timer(0.05, self.tracker_pose_read, callback_group=callback_group)
+        # self.tracker_pose = []
 
         self.path_to_traj = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'data.csv')
         self.goal_trajectory = []
@@ -75,9 +99,8 @@ class DataCollectionNode(Node):
 
         self.tf_static_broadcaster = StaticTransformBroadcaster(self)
 
-        self.base_calibration_srv = self.create_service(Empty, "/base_frame_calibration", self.base_calibration_cb, callback_group=callback_group)
-        self.start_experiments_srv = self.create_service(Empty, "/start_experiment", self.start_experiment_cb, callback_group=callback_group)
-
+        self.base_calibration_srv = self.create_service(Empty, "/base_frame_calibration", self.base_calibration_cb, callback_group=cb_group)
+        self.start_experiments_srv = self.create_service(Empty, "/start_experiment", self.start_experiment_cb, callback_group=cb_group)
 
         self.loop_rate = self.create_rate(0.5, self.get_clock())
 
@@ -136,35 +159,12 @@ class DataCollectionNode(Node):
         
         return trajectory_array
 
-
-    # def tracker_pose_read(self):
-    #     from_frame = 'world'
-    #     to_frame = self.target_frame
-
-    #     try:
-    #         t = self.tf_buffer.lookup_transform(to_frame, from_frame, rclpy.time.Time())
-    #     except TransformException as ex:
-    #         self.get_logger().info(f'Could not transform {to_frame} to {from_frame}: {ex}')
-    #         return
-    
-    #     rotation = R.from_quat(np.array([t.transform.rotation.x,
-    #                                      t.transform.rotation.y,
-    #                                      t.transform.rotation.z,
-    #                                      t.transform.rotation.w]))    
-    #     translation = np.array([[t.transform.translation.x],
-    #                             [t.transform.translation.y],
-    #                             [t.transform.translation.z]])
         
-    #     Rt = np.append(rotation.as_matrix(), translation, axis=1)
-    #     self.tracker_pose = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
-        # self.pub.publish(translation.tolist())
-        
-    def get_tracker_pose_array(self):
-        rotation_mat = R.from_matrix(self.tracker_pose[:3, :3])
-        translation_vec = self.tracker_pose[0:3, [3]]
-        result = np.concatenate([translation_vec, rotation_mat.as_euler('zyx', degrees=False)])
-        return result.tolist()
-
+    # def get_tracker_pose_array(self):
+    #     rotation_mat = R.from_matrix(self.tracker_pose[:3, :3])
+    #     translation_vec = self.tracker_pose[0:3, [3]]
+    #     result = np.concatenate([translation_vec, rotation_mat.as_euler('zyx', degrees=False)])
+    #     return result.tolist()
 
 
     def base_calibration(self):
@@ -187,7 +187,17 @@ class DataCollectionNode(Node):
         Rt = np.append(tool_rotation.as_matrix(), [[tool_trans[0]], [tool_trans[1]], [tool_trans[2]]], axis=1)
         tool_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
 
-        tracker_tf = self.get_tracker_pose()
+        future = self.get_tracker_pose_cli.call_async(TrackerPose.Request())
+        rclpy.spin_until_future_complete(self, future)
+
+        tracker_pose = future.result()
+
+        if not tracker_pose.success:
+            self.get_logger().error("Failed to get tracker pose")
+            return
+
+        tracker_tf = self.pose_to_homogeneous(tracker_pose.pose)
+
         base_frame_tf = tracker_tf @ inv(tool_tf)
         
         ### write base frame tf to json
@@ -211,8 +221,6 @@ class DataCollectionNode(Node):
 
 
         self.get_logger().info("Calibration of the base frame has been done")
-
-    
 
 
     def execute_experiment(self):
@@ -250,29 +258,45 @@ class DataCollectionNode(Node):
     
     
     def base_calibration_cb(self, request, response):
-        print("call srv")
         self.base_calibration()
-        print("done")
-        return Empty.Response()
+        return response
 
     def start_experiment_cb(self, request, response):
         self.execute_experiment()
-        return
+        return response
+
+    def pose_to_homogeneous(self, pose : Transform):
+        rotation = R.from_quat(np.array([pose.rotation.x,
+                                         pose.rotation.y,
+                                         pose.rotation.z,
+                                         pose.rotation.w]))
+            
+        translation = np.array([[pose.translation.x],
+                                [pose.translation.y],
+                                [pose.translation.z]])
+        
+        Rt = np.append(rotation.as_matrix(), translation, axis=1)
+        tracker_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
+        return tracker_tf
 
 
 
 def main():
     rclpy.init()
-
-    node = DataCollectionNode()
+    main_node = DataCollectionNode()
+    get_pose_node = GetTrackerPoseSrv()
 
     executor = MultiThreadedExecutor()
-    executor.add_node(node)
+    executor.add_node(main_node)
+    executor.add_node(get_pose_node)
+
     try:
         executor.spin()
     except KeyboardInterrupt:
-        node.get_logger().info('Shutting down..')
-    node.destroy_node()
+        main_node.get_logger().info('Shutting down..')
+    
+    main_node.destroy_node()
+    get_pose_node.destroy_node()
     rclpy.shutdown()
 
 
