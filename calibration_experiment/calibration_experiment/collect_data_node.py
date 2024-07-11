@@ -252,7 +252,7 @@ class DataCollectionNode(Node):
                 if not tracker_pose.success:
                     continue
 
-                tracker_tf = self.pose_to_homogeneous(tracker_pose)
+                tracker_tf = self.pose_to_homogeneous(tracker_pose.pose)
                 tracker_trans = tracker_tf[0:3, [3]].flatten()
                 tracker_rot = R.from_matrix(tracker_tf[:3, :3])
                 tracker_position = np.concatenate([tracker_trans, tracker_rot.as_euler('zyx')])
