@@ -244,7 +244,7 @@ void VIVEnode::run()
         tf_broadcaster_->sendTransform(t_world);
 
         auto& clk = *this->get_clock();
-        RCLCPP_INFO_THROTTLE(this->get_logger(), clk, 1000, "Run() @ %d [fps]", [](int& cin){int ans = cin; cin = 0; return ans;}(run_hz_count));
+        //RCLCPP_INFO_THROTTLE(this->get_logger(), clk, 1000, "Run() @ %d [fps]", [](int& cin){int ans = cin; cin = 0; return ans;}(run_hz_count));
         run_hz_count++;
     }
 

@@ -95,7 +95,7 @@ class DataCollectionNode(Node):
         self.goal_trajectory = []
 
         self.path_to_data = os.path.expandvars('$HOME') + '/calibration/experiments'
-        self.path_to_config = os.path.expandvars('$HOME') + '/calibration/config/ar_20.json'
+        self.path_to_config = os.path.expandvars('$HOME') + '/calibration_new/ar_20.json'
 
         self.tf_static_broadcaster = StaticTransformBroadcaster(self)
 
@@ -148,7 +148,6 @@ class DataCollectionNode(Node):
 
 
     def get_trajectory(self):
-
         trajectory_array = []
         with open(self.path_to_traj, 'r') as f:
             reader = csv.reader(f)
@@ -177,7 +176,7 @@ class DataCollectionNode(Node):
         self.loop_rate.sleep()
 
 
-        await self.set_origin_cli.call_async(Empty.Request())
+        #await self.set_origin_cli.call_async(Empty.Request())
 
         tool_params = self.tool_subscription.read()[0].value
         tool_rotation = R.from_euler('zyx', np.array(tool_params[3:]))
@@ -194,7 +193,7 @@ class DataCollectionNode(Node):
             self.get_logger().error("Failed to get tracker pose")
             return
 
-        tracker_tf = self.pose_to_homogeneous(tracker_pose.pose)
+        tracker_tf = self.pose_to_homogeneous(tracker_pose.tf)
 
         base_frame_tf = tracker_tf @ inv(tool_tf)
         
@@ -250,7 +249,7 @@ class DataCollectionNode(Node):
                 if not tracker_pose.success:
                     continue
 
-                tracker_tf = self.pose_to_homogeneous(tracker_pose.pose)
+                tracker_tf = self.pose_to_homogeneous(tracker_pose.tf)
                 tracker_trans = tracker_tf[0:3, [3]].flatten()
                 tracker_rot = R.from_matrix(tracker_tf[:3, :3])
                 tracker_position = np.concatenate([tracker_trans, tracker_rot.as_euler('zyx')])
@@ -261,12 +260,12 @@ class DataCollectionNode(Node):
                 self.get_logger().info(f"Write point with coordinates: x={tracker_position[0]}, y={tracker_position[1]}, z={tracker_position[2]}, Rz={tracker_position[3]}, Ry={tracker_position[4]}, Rx{tracker_position[5]}")
     
     
-    def base_calibration_cb(self, request, response):
-        self.base_calibration()
+    async def base_calibration_cb(self, request, response):
+        await self.base_calibration()
         return response
 
-    def start_experiment_cb(self, request, response):
-        self.execute_experiment()
+    async def start_experiment_cb(self, request, response):
+        await self.execute_experiment()
         return response
 
     def pose_to_homogeneous(self, pose : Transform):

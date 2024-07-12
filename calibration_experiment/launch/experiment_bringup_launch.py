@@ -43,19 +43,19 @@ def generate_launch_description():
 
     collect_data_node = Node(
         package='calibration_experiment',
-        executable='collect_data_node.py',
+        executable='collect_data_node',
         output='screen'
     )
 
     manipulator_control = Node(
         package='manipulator_control',
-        executable='move_robot_node.py',
+        executable='move_robot_node',
         output='screen'
     )
 
     experiment_interface = Node(
         package="calibration_experiment",
-        executable="experiment_interface.py",
+        executable="experiment_interface",
         output='screen'
     )
 
@@ -69,11 +69,11 @@ def generate_launch_description():
                     on_start=[manipulator_control, collect_data_node]
                 )
             ),
-            RegisterEventHandler(
-                event_handler=OnProcessStart(
-                    target_action=collect_data_node,
-                    on_start=[experiment_interface]
-                )
-            )
+            # RegisterEventHandler(
+            #     event_handler=OnProcessStart(
+            #         target_action=collect_data_node,
+            #         on_start=[experiment_interface]
+            #     )
+            # )
         ]
     )

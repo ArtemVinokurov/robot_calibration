@@ -15,7 +15,7 @@ set(OPENVR "$ENV{HOME}/libraries/openvr")
 add_definitions(-DOPENVR_PATH="${OPENVR}")
 set(THIRDPARTY_DIR ${OPENVR}/samples/thirdparty)
 set(SHARED_SRC_DIR ${OPENVR}/samples/shared)
-set(CMAKE_CXX_FLAGS         "${CMAKE_CXX_FLAGS} -std=c++17 -include ${SHARED_SRC_DIR}/compat.h")
+#set(CMAKE_CXX_FLAGS         "${CMAKE_CXX_FLAGS} -std=c++17 -include ${SHARED_SRC_DIR}/compat.h")
 set(CMAKE_CXX_FLAGS_DEBUG   "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -pedantic -g")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
 
@@ -113,10 +113,10 @@ install(TARGETS
   vive_node
   DESTINATION lib/${PROJECT_NAME}
 )
-install(
-  DIRECTORY ${OPENVR}/lib/linux64/
-  DESTINATION lib
-)
+#install(
+#  DIRECTORY ${OPENVR}/lib/linux64/
+#  DESTINATION lib
+#)
 # install(
 #   DIRECTORY ${OPENVR}/lib/linux64/
 #   DESTINATION lib

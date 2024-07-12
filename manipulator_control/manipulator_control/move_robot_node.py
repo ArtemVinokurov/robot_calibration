@@ -32,7 +32,7 @@ class MoveRobotService(Node):
         license_file = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'mcx.cert.pem')
 
         try:
-            self.req, self.sub = motorcortex.connect('wss://192.168.57.3:5568:5567', self.motorcortex_types, parameter_tree,
+            self.req, self.sub = motorcortex.connect('wss://192.168.2.100:5568:5567', self.motorcortex_types, parameter_tree,
                                                      certificate=license_file, timeout_ms=1000, login="admin", password="vectioneer")
         
         # self.subscription = self.sub
