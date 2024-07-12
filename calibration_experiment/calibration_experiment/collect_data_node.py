@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from math import pi, asin, cos, sin, acos, atan2, sqrt, radians
 from geometry_msgs.msg import Pose, PoseArray
@@ -167,19 +167,17 @@ class DataCollectionNode(Node):
     #     return result.tolist()
 
 
-    def base_calibration(self):
+    async def base_calibration(self):
         initial_pos = [0.0, 0.0, math.radians(90.0), 0.0, math.radians(90.0), 0.0]
 
         req = MoveJ.Request()
         req.angles = initial_pos
-        future = self.movej_cli.call_async(req)
-        rclpy.spin_until_future_complete(self, future)
+        await self.movej_cli.call_async(req)
         # time.sleep(2.0)
         self.loop_rate.sleep()
 
 
-        future = self.set_origin_cli.call_async(Empty.Request())
-        rclpy.spin_until_future_complete(self, future)
+        await self.set_origin_cli.call_async(Empty.Request())
 
         tool_params = self.tool_subscription.read()[0].value
         tool_rotation = R.from_euler('zyx', np.array(tool_params[3:]))
@@ -188,9 +186,9 @@ class DataCollectionNode(Node):
         tool_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
 
         future = self.get_tracker_pose_cli.call_async(TrackerPose.Request())
-        rclpy.spin_until_future_complete(self, future)
+        # rclpy.spin_until_future_complete(self, future)
 
-        tracker_pose = future.result()
+        tracker_pose = await future
 
         if not tracker_pose.success:
             self.get_logger().error("Failed to get tracker pose")
@@ -223,7 +221,7 @@ class DataCollectionNode(Node):
         self.get_logger().info("Calibration of the base frame has been done")
 
 
-    def execute_experiment(self):
+    async def execute_experiment(self):
         self.get_logger().info("Starting experiment...")
 
         folder = Path(self.path_to_data)
@@ -240,14 +238,14 @@ class DataCollectionNode(Node):
             for traj in goal_trajectory:
                 req = MoveJ.Request()
                 req.angles = traj
-                future = self.movej_cli.call_async(req)
-                rclpy.spin_until_future_complete(self, future)
+                await self.movej_cli.call_async(req)
+                # rclpy.spin_until_future_complete(self, future)
                 self.loop_rate.sleep()
 
                 actual_joint_position = self.joint_subscription.read()[0].value
                 future = self.get_tracker_pose_cli.call_async(TrackerPose.Request())
-                rclpy.spin_until_future_complete(self, future)
-                tracker_pose = future.result()
+                # rclpy.spin_until_future_complete(self, future)
+                tracker_pose = await future
 
                 if not tracker_pose.success:
                     continue
@@ -292,7 +290,7 @@ def main():
     main_node = DataCollectionNode()
     get_pose_node = GetTrackerPoseSrv()
 
-    executor = MultiThreadedExecutor()
+    executor = SingleThreadedExecutor()
     executor.add_node(main_node)
     executor.add_node(get_pose_node)
 
