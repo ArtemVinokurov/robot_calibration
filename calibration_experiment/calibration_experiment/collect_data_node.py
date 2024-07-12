@@ -91,7 +91,10 @@ class DataCollectionNode(Node):
 
         # self.tracker_pose = []
 
-        self.path_to_traj = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'data.csv')
+        self.generally_data = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'data.csv')
+        self.base_calibrate_data = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'base_data.csv')
+        self.tool_calibrate_data = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'tool_data.csv')
+
         self.goal_trajectory = []
 
         self.path_to_data = os.path.expandvars('$HOME') + '/calibration/experiments'
@@ -101,6 +104,9 @@ class DataCollectionNode(Node):
 
         self.base_calibration_srv = self.create_service(Empty, "/base_frame_calibration", self.base_calibration_cb, callback_group=cb_group)
         self.start_experiments_srv = self.create_service(Empty, "/start_experiment", self.start_experiment_cb, callback_group=cb_group)
+
+        self.base_calibration_srv = self.create_service(Empty, "/start_base_experiment", self.base_experiment_cb, callback_group=cb_group)
+        self.start_experiments_srv = self.create_service(Empty, "/start_tool_experiment", self.tool_experiment_cb, callback_group=cb_group)
 
         self.loop_rate = self.create_rate(0.5, self.get_clock())
 
@@ -147,15 +153,18 @@ class DataCollectionNode(Node):
         return tracker_pose
 
 
-    def get_trajectory(self):
+    def get_trajectory(self, data, type_experiment):
         trajectory_array = []
-        with open(self.path_to_traj, 'r') as f:
+        with open(data, 'r') as f:
             reader = csv.reader(f)
             next(reader)
             for row in reader:
                 lst = map(float, row)
-                trajectory_array.append(list(lst)[:6])  
+                trajectory_array.append(list(lst)[:6])
+                if type_experiment == '/base':
+                    trajectory_array.append(list(lst)[9])  
         
+
         return trajectory_array
 
         
@@ -220,23 +229,30 @@ class DataCollectionNode(Node):
         self.get_logger().info("Calibration of the base frame has been done")
 
 
-    async def execute_experiment(self):
+    async def execute_experiment(self, type_experiment, header, data):
         self.get_logger().info("Starting experiment...")
 
-        folder = Path(self.path_to_data)
+        folder = Path(self.path_to_data+type_experiment)
         file_count = len(list(folder.iterdir()))
-        header = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6',
-            'px', 'py', 'pz', 'Rz', 'Ry', 'Rx']
 
-        with open(self.path_to_data + "\experiment" + str(file_count+1) + ".csv", "w", encoding='UTF8') as f:
+        if type_experiment == "/base":
+            header = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6',
+            'px_r', 'py_r', 'pz_r', 'joint']
+        else: 
+            header = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6',
+                'px_r', 'py_r', 'pz', 'Rz', 'Ry', 'Rx']
+        
+
+
+        with open(self.path_to_data + type_experiment + "/experiment" + str(file_count+1) + ".csv", "w", encoding='UTF8') as f:
             writer = csv.writer(f)
             writer.writerow(header)        
 
-            goal_trajectory = self.get_trajectory()
+            goal_trajectory = self.get_trajectory(data, type_experiment)
 
             for traj in goal_trajectory:
                 req = MoveJ.Request()
-                req.angles = traj
+                req.angles = traj[:6]
                 await self.movej_cli.call_async(req)
                 # rclpy.spin_until_future_complete(self, future)
                 self.loop_rate.sleep()
@@ -255,6 +271,8 @@ class DataCollectionNode(Node):
                 tracker_position = np.concatenate([tracker_trans, tracker_rot.as_euler('zyx')])
 
                 data = actual_joint_position + tracker_position.tolist()
+                if type_experiment == '/base':
+                    data.append(traj[6])
                 writer.writerow(data)
 
                 self.get_logger().info(f"Write point with coordinates: x={tracker_position[0]}, y={tracker_position[1]}, z={tracker_position[2]}, Rz={tracker_position[3]}, Ry={tracker_position[4]}, Rx{tracker_position[5]}")
@@ -265,8 +283,18 @@ class DataCollectionNode(Node):
         return response
 
     async def start_experiment_cb(self, request, response):
-        await self.execute_experiment()
+        await self.execute_experiment("/generally", self.generally_data)
         return response
+    
+    async def base_experiment_cb(self, req, res):
+        await self.execute_experiment("/base", self.base_calibrate_data)
+        return res
+    
+    async def tool_experiment_cb(self, req, res):
+        await self.execute_experiment("/tool", self.tool_calibrate_data)
+        return res
+
+
 
     def pose_to_homogeneous(self, pose : Transform):
         rotation = R.from_quat(np.array([pose.rotation.x,
