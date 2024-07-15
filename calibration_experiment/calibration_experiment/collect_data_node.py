@@ -46,15 +46,14 @@ class GetTrackerPoseSrv(Node):
         self.create_service(TrackerPose, "/get_tracker_pose", self.get_pose_cb,callback_group=cb_group)
 
     def get_pose_cb(self, request: TrackerPose.Request, response: TrackerPose.Response):
-        from_frame = 'world'
+        from_frame = 'world_vive'
 
         try:
-            t = self.tf_buffer.lookup_transform(self.target_frame, from_frame, rclpy.time.Time())
+            t = self.tf_buffer.lookup_transform(from_frame, self.target_frame, rclpy.time.Time())
         except TransformException as ex:
             self.get_logger().info(f'Could not transform {self.target_frame} to {from_frame}: {ex}')
             response.success = False
             return
-        
         response.success = True
         response.tf = t.transform
         return response
@@ -132,7 +131,7 @@ class DataCollectionNode(Node):
         self.tf_static_broadcaster.sendTransform(t)
 
     def get_tracker_pose(self):
-        from_frame = 'world'
+        from_frame = 'world_vive'
         to_frame = self.target_frame
         t = self.tf_buffer.lookup_transform()
 
@@ -165,11 +164,9 @@ class DataCollectionNode(Node):
                 if len(lst) == 0:
                     continue
                 trajectory_array.append(lst.copy()[:6])
-                # print(trajectory_array)
                 if type_experiment == '/base' or type_experiment == '/tool':
                     trajectory_array[-1].append(lst[-1])  
         
-        print(trajectory_array)
         return trajectory_array
 
         
@@ -218,7 +215,7 @@ class DataCollectionNode(Node):
         ### write base frame tf to json
 
         base_frame_rot = R.from_matrix(base_frame_tf[:3, :3])
-        base_frame_trans = base_frame_tf[0:3, [3]].flatten()
+        base_frame_trans = base_frame_tf[0:3, 3].flatten()
         base_pose = np.concatenate([base_frame_trans, base_frame_rot.as_euler('zyx')])
 
 
@@ -244,7 +241,7 @@ class DataCollectionNode(Node):
         folder = Path(self.path_to_data+type_experiment)
         file_count = len(list(folder.iterdir()))
 
-        if type_experiment == "/base":
+        if type_experiment == "/base" or type_experiment == "/tool":
             header = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6',
             'px_r', 'py_r', 'pz_r', 'joint']
         else: 
@@ -256,7 +253,6 @@ class DataCollectionNode(Node):
             writer.writerow(header)        
 
             goal_trajectory = self.get_trajectory(data, type_experiment)
-            print(goal_trajectory)
 
             for traj in goal_trajectory:
                 req = MoveJ.Request()
@@ -274,15 +270,15 @@ class DataCollectionNode(Node):
                     continue
 
                 tracker_tf = self.pose_to_homogeneous(tracker_pose.tf)
-                tracker_trans = tracker_tf[0:3, [3]].flatten()
+                tracker_trans = tracker_tf[:, 3].flatten()
                 tracker_rot = R.from_matrix(tracker_tf[:3, :3])
                 tracker_position = np.concatenate([tracker_trans, tracker_rot.as_euler('zyx')])
 
                 if type_experiment == '/base' or type_experiment == '/tool':
-                    data = list(actual_joint_position) + tracker_position.tolist()[:3]
+                    data = list(actual_joint_position) + tracker_trans.tolist()[:3]
                 else:
                     data = list(actual_joint_position) + tracker_position.tolist()
-                if type_experiment == '/base':
+                if type_experiment == '/base' or type_experiment == '/tool':
                     data.append(traj[6])
                 writer.writerow(data)
 
@@ -317,10 +313,10 @@ class DataCollectionNode(Node):
         translation = np.array([[pose.translation.x],
                                 [pose.translation.y],
                                 [pose.translation.z]])
-        
         Rt = np.append(rotation.as_matrix(), translation, axis=1)
-        tracker_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
-        return tracker_tf
+        # tracker_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
+        # return tracker_tf
+        return Rt
 
 
 

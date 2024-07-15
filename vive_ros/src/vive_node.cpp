@@ -221,8 +221,6 @@ void VIVEnode::run()
             }
         }
 
-       
-
         tf2::Quaternion quat_world;
         // quat_world.setRPY(M_PI_2, 0, world_yaw_);
         quat_world.setRPY(M_PI_2, 0, world_yaw_);
