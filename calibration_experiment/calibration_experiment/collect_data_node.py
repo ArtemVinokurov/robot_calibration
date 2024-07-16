@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import rclpy
+import rclpy.lifecycle
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -85,15 +85,15 @@ class DataCollectionNode(Node):
         cb_group = ReentrantCallbackGroup()
 
         self.movej_cli = self.create_client(MoveJ, 'moveJ', callback_group=cb_group)
-        self.set_origin_cli = self.create_client(Empty, '/vive/set_origin', callback_group=cb_group)
+        # self.set_origin_cli = self.create_client(Empty, '/vive/set_origin', callback_group=cb_group)
         self.get_tracker_pose_cli = self.create_client(TrackerPose, '/get_tracker_pose', callback_group=cb_group)
 
-        # self.tracker_pose = []
+        while self.movej_cli.wait_for_service() and self.get_tracker_pose_cli.wait_for_service():
+            self.get_logger().info("Services not available, wait...")
 
         self.generally_data = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'data.csv')
 
         self.base_calibrate_data = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'base_data.csv')
-        # self.base_calibrate_data = "/home/mishanote_2/robot_calib_env/robot_calibration/manipulator_control/resource/base_data.csv"
         self.tool_calibrate_data = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'tool_data.csv')
 
         self.goal_trajectory = []
@@ -105,17 +105,14 @@ class DataCollectionNode(Node):
 
         self.base_calibration_srv = self.create_service(Empty, "/base_frame_calibration", self.base_calibration_cb, callback_group=cb_group)
         self.start_experiments_srv = self.create_service(Empty, "/start_experiment", self.start_experiment_cb, callback_group=cb_group)
-
         self.base_calibration_srv = self.create_service(Empty, "/start_base_experiment", self.base_experiment_cb, callback_group=cb_group)
         self.start_experiments_srv = self.create_service(Empty, "/start_tool_experiment", self.tool_experiment_cb, callback_group=cb_group)
-
-        self.loop_rate = self.create_rate(0.5, self.get_clock())
 
     def make_transform(self, translation, quat):
         t = TransformStamped()
 
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
+        t.header.frame_id = 'world_vive'
         t.child_frame_id = 'base_frame'
 
         t.transform.translation.x = float(translation[0])
@@ -185,8 +182,6 @@ class DataCollectionNode(Node):
         #await self.movej_cli.call_async(req)
         # time.sleep(2.0)
         #self.loop_rate.sleep()
-
-
         #await self.set_origin_cli.call_async(Empty.Request())
 
         tool_params = self.tool_subscription.read()[0].value
@@ -196,8 +191,6 @@ class DataCollectionNode(Node):
         tool_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
 
         future = self.get_tracker_pose_cli.call_async(TrackerPose.Request())
-        # rclpy.spin_until_future_complete(self, future)
-
         tracker_pose = await future
 
         if not tracker_pose.success:
@@ -254,35 +247,33 @@ class DataCollectionNode(Node):
 
             goal_trajectory = self.get_trajectory(data, type_experiment)
 
+            number_of_point = 0
             for traj in goal_trajectory:
                 req = MoveJ.Request()
                 req.angles = traj[:6]
                 await self.movej_cli.call_async(req)
-                # rclpy.spin_until_future_complete(self, future)
                 time.sleep(2.0)
 
                 actual_joint_position = self.joint_subscription.read()[0].value
                 future = self.get_tracker_pose_cli.call_async(TrackerPose.Request())
-                # rclpy.spin_until_future_complete(self, future)
                 tracker_pose = await future
 
                 if not tracker_pose.success:
                     continue
 
                 tracker_tf = self.pose_to_homogeneous(tracker_pose.tf)
-                tracker_trans = tracker_tf[:, 3].flatten()
+                tracker_trans = tracker_tf[0:3, [3]].flatten()
                 tracker_rot = R.from_matrix(tracker_tf[:3, :3])
                 tracker_position = np.concatenate([tracker_trans, tracker_rot.as_euler('zyx')])
 
                 if type_experiment == '/base' or type_experiment == '/tool':
-                    data = list(actual_joint_position) + tracker_trans.tolist()[:3]
+                    data = list(actual_joint_position) + tracker_trans.tolist()[:3] + traj[6]
                 else:
                     data = list(actual_joint_position) + tracker_position.tolist()
-                if type_experiment == '/base' or type_experiment == '/tool':
-                    data.append(traj[6])
                 writer.writerow(data)
+                number_of_point += 1
 
-                self.get_logger().info(f"Write point with coordinates: x={tracker_position[0]}, y={tracker_position[1]}, z={tracker_position[2]}, Rz={tracker_position[3]}, Ry={tracker_position[4]}, Rx{tracker_position[5]}")
+                self.get_logger().info(f"Write point №{number_of_point} with coordinates: x={tracker_position[0]}, y={tracker_position[1]}, z={tracker_position[2]}, Rz={tracker_position[3]}, Ry={tracker_position[4]}, Rx{tracker_position[5]}")
         
         self.get_logger().info("End experiment")
     
@@ -314,9 +305,8 @@ class DataCollectionNode(Node):
                                 [pose.translation.y],
                                 [pose.translation.z]])
         Rt = np.append(rotation.as_matrix(), translation, axis=1)
-        # tracker_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
-        # return tracker_tf
-        return Rt
+        tracker_tf = np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
+        return tracker_tf
 
 
 
@@ -331,11 +321,13 @@ def main():
 
     try:
         executor.spin()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, Exception):
         main_node.get_logger().info('Shutting down..')
+
     
     main_node.destroy_node()
     get_pose_node.destroy_node()
+    executor.shutdown()
     rclpy.shutdown()
 
 
