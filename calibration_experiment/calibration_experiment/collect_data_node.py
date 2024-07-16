@@ -204,7 +204,9 @@ class DataCollectionNode(Node):
         y_rot = np.array([[-1, 0, 0, 0], [0, 1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
         # base_frame_tf = tracker_tf @ inv(tool_tf)
         base_frame_tf = tracker_tf
+
         
+
         ### write base frame tf to json
 
         base_frame_rot = R.from_matrix(base_frame_tf[:3, :3])
@@ -215,11 +217,13 @@ class DataCollectionNode(Node):
         ### publish static transform from nominal base frame to vive frame
         self.make_transform(base_frame_trans, base_frame_rot.as_quat())
 
-
+        base_manip_translation = np.asarray(tool_trans) - base_frame_trans
+        print(base_manip_translation)
         ### write calibrate base frame to config json file
         with open(self.path_to_config, "r", encoding='utf-8') as f:
             data = json.load(f)
         data['nominal_base_params'] = base_pose.tolist()
+        data['zero_tracker_position'] = base_manip_translation.tolist()
 
         with open(self.path_to_config, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
