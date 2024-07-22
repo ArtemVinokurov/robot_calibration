@@ -32,13 +32,13 @@ class MoveRobotService(Node):
         license_file = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'mcx.cert.pem')
 
         try:
-            self.req, self.sub = motorcortex.connect('wss://192.168.2.100:5568:5567', self.motorcortex_types, parameter_tree,
+            self.req, self.sub = motorcortex.connect('wss://192.168.1.100:5568:5567', self.motorcortex_types, parameter_tree,
                                                      certificate=license_file, timeout_ms=1000, login="admin", password="vectioneer")
         
         # self.subscription = self.sub
-            self.joint_subscription = self.sub.subscribe(
-                ['root/ManipulatorControl/jointPositionsActual'], 'group1', 5)
-            self.joint_subscription.get()            
+            # self.joint_subscription = self.sub.subscribe(
+            #     ['root/ManipulatorControl/jointPositionsActual'], 'group1', 5)
+            # self.joint_subscription.get()            
         except Exception as e:
             self.get_logger().error(f"Failed to establish connection: {e}")
             return
@@ -74,7 +74,7 @@ class MoveRobotService(Node):
         
         # while self.robot.getState() is InterpreterStates.PROGRAM_RUN_S.value:
         #     pass
-        result = self.robot.moveToPoint(list(angles), 0.1, 0.1)
+        result = self.robot.moveToPoint(list(angles), 0.25, 1.0)
         response.success = result
         return response
     

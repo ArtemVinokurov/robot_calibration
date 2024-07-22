@@ -31,6 +31,8 @@ from scipy.spatial.transform import Rotation as R
 
 from pathlib import Path
 from std_srvs.srv import Empty
+import matplotlib.pyplot as plt
+
 
 
 
@@ -38,9 +40,8 @@ class GetTrackerPoseSrv(Node):
     def __init__(self):
         super().__init__("get_pose_srv")
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)
+        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=False)
         self.target_frame = 'tracker_LHR_A5314E9D'
-
 
         cb_group = ReentrantCallbackGroup()
         self.create_service(TrackerPose, "/get_tracker_pose", self.get_pose_cb,callback_group=cb_group)
@@ -69,13 +70,18 @@ class DataCollectionNode(Node):
         license_file = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'mcx.cert.pem')
 
         try:
-            self.req, self.sub = motorcortex.connect('wss://192.168.2.100:5568:5567', self.motorcortex_types, parameter_tree,
+            self.req, self.sub = motorcortex.connect('wss://192.168.1.100:5568:5567', self.motorcortex_types, parameter_tree,
                                                      certificate=license_file, timeout_ms=10000, login="admin", password="vectioneer")
         
         # self.subscription = self.sub
+            # self.joint_subscription = self.sub.subscribe(
+            #     ['root/ManipulatorControl/jointPositionsActual'], 'group1', 1)
+
             self.joint_subscription = self.sub.subscribe(
-                ['root/ManipulatorControl/jointPositionsActual'], 'group1', 1)
-            self.tool_subscription = self.sub.subscribe('root/ManipulatorControl/manipulatorToolPoseActual', 'group2', 1)
+                ['root/ManipulatorControl/actualJointPositionsFiltered'], 'group1', 1)
+            
+            # self.tool_subscription = self.sub.subscribe('root/ManipulatorControl/manipulatorToolPoseActual', 'group2', 1)
+            self.tool_subscription = self.sub.subscribe('root/ManipulatorControl/actualToolCoordinates', 'group2', 1)
             self.tool_subscription.get()
             self.joint_subscription.get()            
         except Exception as e:
@@ -85,11 +91,11 @@ class DataCollectionNode(Node):
         cb_group = ReentrantCallbackGroup()
 
         self.movej_cli = self.create_client(MoveJ, 'moveJ', callback_group=cb_group)
-        # self.set_origin_cli = self.create_client(Empty, '/vive/set_origin', callback_group=cb_group)
+        self.set_origin_cli = self.create_client(Empty, '/vive/set_origin', callback_group=cb_group)
         self.get_tracker_pose_cli = self.create_client(TrackerPose, '/get_tracker_pose', callback_group=cb_group)
 
-        while self.movej_cli.wait_for_service() and self.get_tracker_pose_cli.wait_for_service():
-            self.get_logger().info("Services not available, wait...")
+        # while self.movej_cli.wait_for_service() and self.get_tracker_pose_cli.wait_for_service():
+        #     self.get_logger().info("Services not available, wait...")
 
         self.generally_data = os.path.join(get_package_share_directory('manipulator_control'), 'resource', 'data.csv')
 
@@ -107,6 +113,15 @@ class DataCollectionNode(Node):
         self.start_experiments_srv = self.create_service(Empty, "/start_experiment", self.start_experiment_cb, callback_group=cb_group)
         self.base_calibration_srv = self.create_service(Empty, "/start_base_experiment", self.base_experiment_cb, callback_group=cb_group)
         self.start_experiments_srv = self.create_service(Empty, "/start_tool_experiment", self.tool_experiment_cb, callback_group=cb_group)
+        
+
+        self.fig = plt.figure()
+        self.ax = self.fig.add_subplot(projection='3d')
+
+        self.ax.set_xlabel('X Label')
+        self.ax.set_ylabel('Y Label')
+        self.ax.set_zlabel('Z Label')
+        
 
     def make_transform(self, translation, quat):
         t = TransformStamped()
@@ -179,10 +194,9 @@ class DataCollectionNode(Node):
 
         req = MoveJ.Request()
         req.angles = initial_pos
-        #await self.movej_cli.call_async(req)
-        # time.sleep(2.0)
-        #self.loop_rate.sleep()
-        #await self.set_origin_cli.call_async(Empty.Request())
+        await self.movej_cli.call_async(req)
+        time.sleep(2.0)
+        await self.set_origin_cli.call_async(Empty.Request())
 
         tool_params = self.tool_subscription.read()[0].value
         tool_rotation = R.from_euler('ZYX', np.array(tool_params[3:]))
@@ -202,8 +216,8 @@ class DataCollectionNode(Node):
         # base_frame_tf = tracker_tf @ np.array([[-1, 0, 0, 0], [0, 1, 0, 0], [0, 0, -1, 0.01881], [0, 0, 0, 1]]) @ inv(tool_tf)
         z_rot = np.array([[0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
         y_rot = np.array([[-1, 0, 0, 0], [0, 1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-        # base_frame_tf = tracker_tf @ inv(tool_tf)
-        base_frame_tf = tracker_tf
+        base_frame_tf = tracker_tf@ y_rot @ inv(tool_tf)
+        # base_frame_tf = tracker_tf
 
         
 
@@ -259,19 +273,30 @@ class DataCollectionNode(Node):
                 time.sleep(2.0)
 
                 actual_joint_position = self.joint_subscription.read()[0].value
-                future = self.get_tracker_pose_cli.call_async(TrackerPose.Request())
-                tracker_pose = await future
+                
+                mse = 99
+                while mse > 0.00015:
+                    positions = []
+                    for _ in range(50):
+                        future = self.get_tracker_pose_cli.call_async(TrackerPose.Request())
+                        tracker_pose = await future
 
-                if not tracker_pose.success:
-                    continue
+                        if not tracker_pose.success:
+                            continue
+                        tracker_tf = self.pose_to_homogeneous(tracker_pose.tf)
+                        tracker_trans = tracker_tf[0:3, [3]].flatten()
+                        tracker_rot = R.from_matrix(tracker_tf[:3, :3])
+                        tracker_position = np.concatenate([tracker_trans, tracker_rot.as_euler('zyx')])
+                        positions.append(tracker_position)
+                        # self.ax.scatter(tracker_position[0], tracker_position[1], tracker_position[2], marker="x")
+                        time.sleep(0.1)
 
-                tracker_tf = self.pose_to_homogeneous(tracker_pose.tf)
-                tracker_trans = tracker_tf[0:3, [3]].flatten()
-                tracker_rot = R.from_matrix(tracker_tf[:3, :3])
-                tracker_position = np.concatenate([tracker_trans, tracker_rot.as_euler('zyx')])
+                    tracker_position = np.mean(positions, axis=0)
+                    mse = sqrt(np.sum(np.mean(np.square(np.array(positions)[:, :3] - tracker_position[:3]), axis=0)))
+                    self.get_logger().info(f"mse: {mse}")
 
                 if type_experiment == '/base' or type_experiment == '/tool':
-                    data = list(actual_joint_position) + tracker_trans.tolist()[:3] + traj[6]
+                    data = list(actual_joint_position) + tracker_position.tolist()[:3] + [traj[6]]
                 else:
                     data = list(actual_joint_position) + tracker_position.tolist()
                 writer.writerow(data)
@@ -325,7 +350,7 @@ def main():
 
     try:
         executor.spin()
-    except (KeyboardInterrupt, Exception):
+    except KeyboardInterrupt:
         main_node.get_logger().info('Shutting down..')
 
     

@@ -25,7 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'collect_data_node = calibration_experiment.collect_data_node:main',
-            'experiment_interface = calibration_experiment.experiment_interface:main'
+            'experiment_interface = calibration_experiment.experiment_interface:main',
+            'pos_publisher = calibration_experiment.pos_publisher:main'
         ],
     },
 )
